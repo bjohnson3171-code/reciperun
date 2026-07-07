@@ -63,49 +63,123 @@ async function callClaude(messages, maxTokens=1000, systemOverride=null){
 
 // Smart local parser — runs entirely in-browser, no API needed
 // Used as fallback when running inside Claude.ai artifact sandbox
-function parseIngredientsLocally(rawText, nameHint=""){
-  const lines = rawText.split(/\n|,(?=\s*\d)/).map(l=>l.trim()).filter(Boolean);
-  const QTY_RE = /^([\d¼½¾⅓⅔⅛⅜⅝⅞\/\s\-\.]+(?:lbs?|oz|cups?|tbsp?|tsp?|cloves?|g|kg|ml|l|cans?|pkg?|packages?|slices?|pieces?|medium|large|small|bunch|handful|to taste|as needed)?\.?)\s+(.+)/i;
-  const BARE_QTY = /^(\d[\d\/\s\.]*(?:lbs?|oz|cups?|tbsp?|tsp?|cloves?|g|kg|ml|l|cans?|pkg?|packages?)?\.?)\s+(.+)/i;
+// Units we recognize when they trail a quantity (e.g. "2 lbs", "1 cup")
+const UNIT_WORDS = ["lb","lbs","pound","pounds","oz","ounce","ounces","cup","cups","tbsp","tbsps","tablespoon","tablespoons","tsp","tsps","teaspoon","teaspoons","clove","cloves","g","gram","grams","kg","ml","l","liter","liters","can","cans","pkg","pkgs","package","packages","slice","slices","piece","pieces","bunch","bunches","handful","handfuls","stick","sticks","bag","bags","box","boxes","jar","jars","bottle","bottles","pack","packs","head","heads","dozen","pint","pints","quart","quarts","gallon","gallons","container","containers","loaf","loaves"];
+// Number words that can lead a quantity ("a dozen eggs", "two onions")
+const NUM_WORDS = {a:"1",an:"1",one:"1",two:"2",three:"3",four:"4",five:"5",six:"6",seven:"7",eight:"8",nine:"9",ten:"10",dozen:"12",half:"½"};
 
-  const catMap = {
-    Meat:    /chicken|beef|pork|lamb|turkey|sausage|bacon|steak|thigh|breast|ground/i,
-    Seafood: /salmon|shrimp|fish|tuna|cod|tilapia|crab|lobster|scallop/i,
-    Produce: /garlic|onion|tomato|lemon|lime|spinach|kale|pepper|zucchini|basil|cilantro|parsley|avocado|cabbage|carrot|celery|mushroom|broccoli|potato|apple|banana|herb|ginger|jalapeño/i,
-    Dairy:   /cream|milk|butter|cheese|parmesan|mozzarella|cheddar|yogurt|sour cream|egg/i,
-    Bakery:  /bread|tortilla|roll|bun|pasta|noodle|penne|spaghetti|flour tortilla/i,
-    Pantry:  /oil|broth|stock|vinegar|soy sauce|tomato sauce|pasta|rice|beans|can|canned|sun.dried|chipotle|adobo/i,
-    Spices:  /salt|pepper|seasoning|cumin|paprika|oregano|thyme|rosemary|flakes|spice|chili|cinnamon|turmeric/i,
-    Frozen:  /frozen|ice cream/i,
-    Beverages:/wine|beer|juice|broth|stock/i,
-  };
+// keyword → category. Order matters: first match wins, so specific/whole-food
+// categories are checked before generic Pantry. (Fixes pasta→Bakery bug.)
+const CAT_RULES = [
+  ["Seafood", /\b(salmon|shrimp|fish|tuna|cod|tilapia|crab|lobster|scallop|prawn|halibut|anchov|sardine)\b/i],
+  ["Meat",    /\b(chicken|beef|pork|lamb|turkey|sausage|bacon|steak|thigh|thighs|breast|breasts|drumstick|ground\s|ribs?|ham|veal|chorizo|prosciutto|wing|wings|mince)\b/i],
+  ["Produce", /\b(garlic|onion|onions|tomato|tomatoes|lemon|lemons|lime|limes|spinach|kale|zucchini|basil|cilantro|parsley|avocado|avocados|cabbage|carrot|carrots|celery|mushroom|mushrooms|broccoli|potato|potatoes|apple|apples|banana|bananas|ginger|jalapeño|jalapeno|lettuce|cucumber|cucumbers|berry|berries|strawberr|blueberr|grape|grapes|mango|mangoes|pear|pears|peach|peaches|corn|scallion|scallions|shallot|shallots|herb|herbs|salad|pepper|peppers|squash|eggplant|asparagus|cauliflower|leek|leeks|radish|beet|beets|orange|oranges)\b/i],
+  ["Dairy",   /\b(milk|butter|cheese|parmesan|mozzarella|cheddar|yogurt|yoghurt|sour cream|cream|egg|eggs|feta|ricotta|cottage|half and half|half-and-half)\b/i],
+  ["Bakery",  /\b(bread|tortilla|tortillas|roll|rolls|bun|buns|bagel|bagels|baguette|croissant|muffin|pita|naan|loaf)\b/i],
+  ["Frozen",  /\b(frozen|ice cream|popsicle)\b/i],
+  ["Beverages",/\b(wine|beer|juice|soda|coffee|tea|sparkling|cola|lemonade)\b/i],
+  ["Spices",  /\b(salt|seasoning|cumin|paprika|oregano|thyme|rosemary|flakes|cinnamon|turmeric|nutmeg|cayenne|chili powder|garlic powder|onion powder|bay leaf|vanilla)\b/i],
+  ["Pantry",  /\b(oil|olive oil|broth|stock|vinegar|soy sauce|tomato sauce|pasta|noodle|noodles|penne|spaghetti|macaroni|rice|beans|lentil|can|canned|sun.?dried|chipotle|adobo|flour|sugar|honey|syrup|ketchup|mustard|mayo|mayonnaise|cereal|oat|oats|cornstarch|cracker|chip|chips|peanut butter|jam|jelly|water|sauce|paste|powder|stock)\b/i],
+];
 
-  const categorize = name => {
-    for(const [cat,re] of Object.entries(catMap)) if(re.test(name)) return cat;
-    return "Pantry";
-  };
+function categorizeIngredient(name){
+  for(const [cat,re] of CAT_RULES){ if(re.test(name)) return cat; }
+  return "Pantry";
+}
 
-  // Try to find recipe name from first non-ingredient line
-  let recipeName = nameHint || "My Recipe";
-  const firstLine = lines[0];
-  if(firstLine && !/^\d/.test(firstLine) && firstLine.length < 60 && !/tbsp|tsp|cup|oz|lb/.test(firstLine)){
-    recipeName = firstLine;
+// Parse a single ingredient phrase into {qty, name}. qty is "" when none.
+function parseOnePhrase(raw){
+  let s = raw.trim().replace(/^[,\-•*·]+\s*/,"");   // strip leading bullets/dashes
+  if(!s) return null;
+
+  let qty = "";
+  let rest = s;
+
+  // Leading numeric quantity: "2", "1.5", "1/2", "2-3", with optional unicode fractions
+  const numMatch = s.match(/^([\d¼½¾⅓⅔⅛⅜⅝⅞]+(?:\s*\/\s*\d+)?(?:\.\d+)?(?:\s*-\s*[\d¼½¾⅓⅔⅛⅜⅝⅞]+)?)\s+(.*)$/);
+  if(numMatch){
+    qty = numMatch[1].replace(/\s+/g,"");
+    rest = numMatch[2];
+  } else {
+    // Leading number word ("a dozen eggs", "two onions")
+    const words = s.split(/\s+/);
+    const w0 = words[0].toLowerCase();
+    if(NUM_WORDS[w0] !== undefined && words.length > 1){
+      qty = NUM_WORDS[w0];
+      rest = words.slice(1).join(" ");
+    }
   }
 
+  // Pull a trailing unit off the front of rest ("lbs chicken" → unit lbs)
+  let unit = "";
+  const rw = rest.split(/\s+/);
+  if(rw.length > 1){
+    const u = rw[0].toLowerCase().replace(/\.$/,"");
+    if(UNIT_WORDS.includes(u)){ unit = rw[0]; rest = rw.slice(1).join(" "); }
+  }
+
+  // Ingredient name = everything up to a descriptor comma ("chicken, diced" → chicken)
+  let name = rest.replace(/,.*$/,"").trim();
+  if(!name) name = s;
+
+  let qtyLabel = "";
+  if(qty && unit) qtyLabel = `${qty} ${unit}`;
+  else if(qty) qtyLabel = qty;
+  else if(unit) qtyLabel = unit;
+
+  return { qty: qtyLabel, name };
+}
+
+// Smart splitter: understands newlines, commas, AND plain single-line input.
+function splitIntoPhrases(text){
+  if(!text.trim()) return [];
+  // First split on newlines and commas
+  let chunks = text.split(/[\n,]+/).map(c=>c.trim()).filter(Boolean);
+  // If it's still one chunk with no amounts, it's likely "oil chicken pasta" —
+  // split on spaces so each word becomes its own item.
+  if(chunks.length === 1){
+    const c = chunks[0];
+    const words = c.split(/\s+/);
+    const hasQty = /[\d¼½¾⅓⅔⅛⅜⅝⅞]/.test(c)
+      || words.some(w=>NUM_WORDS[w.toLowerCase()]!==undefined)
+      || words.some(w=>UNIT_WORDS.includes(w.toLowerCase().replace(/\.$/,"")));
+    if(words.length > 1 && !hasQty) chunks = words;
+  }
+  return chunks;
+}
+
+function parseIngredientsLocally(rawText, nameHint=""){
+  const rawLines = rawText.split(/\n/).map(l=>l.trim()).filter(Boolean);
+
+  // Detect a recipe title only when the first line really looks like one:
+  // multiple words, no digits, no units, AND not itself a known ingredient.
+  let recipeName = nameHint || "My Recipe";
+  let body = rawText;
+  const first = rawLines[0];
+  const looksLikeTitle = first
+    && rawLines.length > 1
+    && first.split(/\s+/).length >= 2                       // titles are multi-word
+    && !/^\d/.test(first)
+    && first.length < 60
+    && !new RegExp(`\\b(${UNIT_WORDS.join("|")})\\b`,"i").test(first)
+    && (/ for \d/i.test(first) || categorizeIngredient(first)==="Pantry" && !/\b(oil|rice|pasta|flour|sugar|sauce)\b/i.test(first));
+  if(looksLikeTitle){
+    recipeName = first.replace(/ for \d+.*$/i,"").trim();
+    body = rawLines.slice(1).join("\n");
+  }
+
+  const phrases = splitIntoPhrases(body);
   const ingredients = [];
-  lines.forEach((line,i)=>{
-    if(i===0 && line===recipeName) return;
-    let name="", qty="to taste";
-    const m = line.match(QTY_RE) || line.match(BARE_QTY);
-    if(m){ qty=m[1].trim(); name=m[2].trim(); }
-    else { name=line; }
-    name = name.replace(/^[,\-•*]+\s*/,"").trim();
+  phrases.forEach((phrase,i)=>{
+    const parsed = parseOnePhrase(phrase);
+    if(!parsed) return;
+    let { qty, name } = parsed;
     if(!name || name.length < 2) return;
     ingredients.push({
       id: Date.now()+i,
       name: name.charAt(0).toUpperCase()+name.slice(1),
-      qty,
-      category: categorize(name),
+      qty,                                   // "" when no amount — no more "to taste"
+      category: categorizeIngredient(name),
       store: null,
       status: "pending",
     });
@@ -491,19 +565,43 @@ const ImportScreen=({onNav,onImport,prefill})=>{
   const [manual,setManual]=useState(prefill?.text||"");
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [preview,setPreview]=useState([]);   // live-parsed items shown as you type
+  const [picking,setPicking]=useState(null);  // id of item whose category is being changed
   const fileRef=useRef();
   const fileRef2=useRef();
 
+  // Parse instantly as the user types — no network, can't fail.
+  useEffect(()=>{
+    if(!manual.trim()){ setPreview([]); return; }
+    const t=setTimeout(()=>{
+      const r=parseIngredientsLocally(manual);
+      setPreview(r.ingredients);
+    },160);
+    return ()=>clearTimeout(t);
+  },[manual]);
+
+  const setItemCat=(id,cat)=>{ setPreview(p=>p.map(it=>it.id===id?{...it,category:cat}:it)); setPicking(null); };
+  const delItem=(id)=>setPreview(p=>p.filter(it=>it.id!==id));
+
+  // Text uses the instant local parse (already in `preview`). Image still uses AI.
   const run=async(input,type="text")=>{
+    if(type==="text"){
+      const items=preview.length?preview:parseIngredientsLocally(input).ingredients;
+      if(!items.length){setError("Type at least one ingredient above and it'll appear here.");return;}
+      const r=parseIngredientsLocally(input);
+      onImport({recipeName:r.recipeName,servings:r.servings,ingredients:items});
+      onNav("review");
+      return;
+    }
     setLoading(true);setError("");
     try{
-      const result=type==="image"?await extractImage(input):await extractText(input);
+      const result=await extractImage(input);
       if(!result.ingredients||result.ingredients.length===0) throw new Error("No ingredients found.");
       onImport(result);onNav("review");
     }catch(e){
       const msg=e.message||"";
       if(msg.includes("Image extraction")){setError(msg);}
-      else{setError("Extraction failed. Try the demo recipes below, or paste your ingredient list as text.");}
+      else{setError("Couldn't read that image. Try typing or pasting the ingredients instead.");}
     }finally{setLoading(false);}
   };
 
@@ -514,7 +612,13 @@ const ImportScreen=({onNav,onImport,prefill})=>{
     reader.readAsDataURL(f);
   };
 
-  useEffect(()=>{if(prefill)run(prefill.text,"text");},[]);
+  // Demo recipes & prefill: parse directly (don't depend on preview state timing).
+  const runText=(text)=>{
+    const r=parseIngredientsLocally(text);
+    if(!r.ingredients.length){setError("No ingredients found in that text.");return;}
+    onImport(r);onNav("review");
+  };
+  useEffect(()=>{if(prefill)runText(prefill.text);},[]);
 
   if(loading)return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",justifyContent:"center"}}>
@@ -526,14 +630,14 @@ const ImportScreen=({onNav,onImport,prefill})=>{
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:80}}>
       <CSS/>
       <div style={{padding:"56px 20px 24px"}}>
-        <Pill color={C.accent} style={{marginBottom:10}}>AI-POWERED</Pill>
-        <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em"}}>Add a Recipe</h2>
-        <p style={{color:C.muted,fontSize:14,marginTop:4}}>We'll extract every ingredient automatically.</p>
+        <Pill color={C.accent} style={{marginBottom:10}}>INSTANT SORT</Pill>
+        <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em"}}>Add ingredients</h2>
+        <p style={{color:C.muted,fontSize:14,marginTop:4}}>Type them any way you like — they sort as you go.</p>
       </div>
       <div style={{padding:"0 20px",display:"flex",flexDirection:"column",gap:12}}>
         <div style={{background:C.purple+"18",border:`1px solid ${C.purple}33`,borderRadius:14,padding:"12px 16px"}}>
         <p style={{color:C.purple,fontSize:13,fontWeight:600}}>✨ Beta Preview</p>
-        <p style={{color:C.muted,fontSize:12,marginTop:3}}>Type or paste recipe text below, or try a demo recipe — both work great. URL & photo import coming soon.</p>
+        <p style={{color:C.muted,fontSize:12,marginTop:3}}>Type or paste ingredients below, or try a demo. URL & photo import coming soon.</p>
       </div>
       {error&&<div style={{background:C.danger+"18",border:`1px solid ${C.danger}44`,borderRadius:14,padding:"12px 16px"}}><p style={{color:C.danger,fontSize:14}}>⚠ {error}</p></div>}
 
@@ -564,19 +668,47 @@ const ImportScreen=({onNav,onImport,prefill})=>{
         </div>
 
         <Card>
-          <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:10}}>TYPE OR PASTE RECIPE TEXT</p>
-          <textarea value={manual} onChange={e=>setManual(e.target.value)} placeholder={"2 lbs chicken thighs\n6 cloves garlic\n1/2 cup heavy cream\n..."} rows={5}
+          <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:10}}>TYPE OR PASTE INGREDIENTS</p>
+          <textarea value={manual} onChange={e=>setManual(e.target.value)} placeholder={"Type any way you like:\n\n2 lbs chicken, pasta, olive oil\n\nor one per line — amounts optional."} rows={5}
             style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box"}}/>
-          <Btn onClick={()=>manual.trim()&&run(manual)} disabled={!manual.trim()} variant="ghost" style={{width:"100%",marginTop:10}}>✨ Extract Ingredients with AI</Btn>
+          <p style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.5}}>Works with commas, new lines, or a plain list. Items sort themselves below — tap a colored tag to move one.</p>
+
+          {preview.length>0&&(
+            <div className="fi" style={{marginTop:14,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <p style={{color:C.text,fontSize:13,fontWeight:700}}>Preview</p>
+                <p style={{color:C.accent,fontSize:13,fontWeight:700}}>{preview.length} item{preview.length!==1?"s":""}</p>
+              </div>
+              {preview.map(it=>(
+                <div key={it.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{color:it.qty?C.accent:C.muted,fontSize:12,fontWeight:700,minWidth:56}}>{it.qty||"—"}</span>
+                  <span style={{flex:1,color:C.text,fontSize:14,fontWeight:600}}>{it.name}</span>
+                  <span onClick={()=>setPicking(picking===it.id?null:it.id)}
+                    style={{fontSize:11,fontWeight:700,padding:"4px 9px",borderRadius:99,cursor:"pointer",color:CAT_COLORS[it.category]||C.muted,background:(CAT_COLORS[it.category]||C.muted)+"22",border:`1px solid ${(CAT_COLORS[it.category]||C.muted)}44`}}>{it.category}</span>
+                  <span onClick={()=>delItem(it.id)} style={{color:C.muted,fontSize:18,cursor:"pointer",width:20,textAlign:"center"}}>×</span>
+                </div>
+              ))}
+              {picking&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,padding:"10px",background:C.bg,borderRadius:10}}>
+                  {Object.keys(CAT_COLORS).map(cat=>(
+                    <span key={cat} onClick={()=>setItemCat(picking,cat)}
+                      style={{fontSize:11,fontWeight:700,padding:"6px 10px",borderRadius:99,cursor:"pointer",color:CAT_COLORS[cat],background:CAT_COLORS[cat]+"22",border:`1px solid ${CAT_COLORS[cat]}44`}}>{cat}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <Btn onClick={()=>run(manual)} disabled={!preview.length} variant="primary" style={{width:"100%",marginTop:14}}>Add {preview.length||""} {preview.length===1?"item":"items"} to list →</Btn>
         </Card>
 
         <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",paddingLeft:4}}>TRY A DEMO</p>
         {SAMPLES.map(r=>(
-          <Card key={r.name} onClick={()=>run(r.text)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer",border:`1px solid ${C.purple}33`}}>
+          <Card key={r.name} onClick={()=>runText(r.text)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer",border:`1px solid ${C.purple}33`}}>
             <span style={{fontSize:32}}>{r.emoji}</span>
             <div style={{flex:1}}>
               <p style={{color:C.text,fontWeight:600,fontSize:15}}>{r.name}</p>
-              <p style={{color:C.muted,fontSize:13}}>Tap to auto-extract</p>
+              <p style={{color:C.muted,fontSize:13}}>Tap to load</p>
             </div>
             <Pill color={C.purple}>DEMO</Pill>
           </Card>
