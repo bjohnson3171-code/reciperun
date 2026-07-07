@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
 
+
+App · JSX
+import { useState, useEffect, useCallback, useRef } from "react";
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // PALETTE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -8,7 +11,7 @@ const C = {
   accent:"#3EE8A0",accentDim:"#1A5C40",warn:"#F5A623",
   danger:"#FF5C5C",text:"#F0F4F2",muted:"#6B7B74",purple:"#9D7FEA",
 };
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,14 +24,14 @@ const LS = {
 const TRIP_KEY="reciperun_trip";
 const PANTRY_KEY="reciperun_pantry";
 const HIST_KEY="reciperun_history";
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI EXTRACTION  — uses Anthropic API (works both in Claude.ai sandbox & Vercel)
 // ─────────────────────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT=`You are a recipe ingredient extractor. Always respond with ONLY a JSON object — no markdown, no preamble.
 Format: { "recipeName": "string", "servings": number, "ingredients": [{ "name": "string", "qty": "string", "category": "Meat|Seafood|Produce|Dairy|Bakery|Pantry|Spices|Frozen|Beverages" }] }
 Rules: combine duplicates, use clear simple names, qty is the full amount string.`;
-
+ 
 // Unified AI caller — works in Claude.ai artifact sandbox AND deployed Vercel app
 async function callClaude(messages, maxTokens=1000, systemOverride=null){
   const system = systemOverride || SYSTEM_PROMPT;
@@ -38,7 +41,7 @@ async function callClaude(messages, maxTokens=1000, systemOverride=null){
     system,
     messages,
   };
-
+ 
   // Try the Anthropic API directly (works when deployed with a proxy or CORS key)
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -51,23 +54,23 @@ async function callClaude(messages, maxTokens=1000, systemOverride=null){
       return data.content.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim();
     }
   } catch(_){}
-
+ 
   // Fallback: use window.ai (available in some sandbox environments)
   if(typeof window !== "undefined" && window.ai){
     const result = await window.ai.generateText({ prompt: messages.map(m=>m.content).join("\n"), systemPrompt: system });
     return (result.text||result).replace(/```json|```/g,"").trim();
   }
-
+ 
   throw new Error("NO_API");
 }
-
+ 
 // Smart local parser — runs entirely in-browser, no API needed
 // Used as fallback when running inside Claude.ai artifact sandbox
 // Units we recognize when they trail a quantity (e.g. "2 lbs", "1 cup")
 const UNIT_WORDS = ["lb","lbs","pound","pounds","oz","ounce","ounces","cup","cups","tbsp","tbsps","tablespoon","tablespoons","tsp","tsps","teaspoon","teaspoons","clove","cloves","g","gram","grams","kg","ml","l","liter","liters","can","cans","pkg","pkgs","package","packages","slice","slices","piece","pieces","bunch","bunches","handful","handfuls","stick","sticks","bag","bags","box","boxes","jar","jars","bottle","bottles","pack","packs","head","heads","dozen","pint","pints","quart","quarts","gallon","gallons","container","containers","loaf","loaves"];
 // Number words that can lead a quantity ("a dozen eggs", "two onions")
 const NUM_WORDS = {a:"1",an:"1",one:"1",two:"2",three:"3",four:"4",five:"5",six:"6",seven:"7",eight:"8",nine:"9",ten:"10",dozen:"12",half:"½"};
-
+ 
 // keyword → category. Order matters: first match wins, so specific/whole-food
 // categories are checked before generic Pantry. (Fixes pasta→Bakery bug.)
 const CAT_RULES = [
@@ -81,20 +84,20 @@ const CAT_RULES = [
   ["Spices",  /\b(salt|seasoning|cumin|paprika|oregano|thyme|rosemary|flakes|cinnamon|turmeric|nutmeg|cayenne|chili powder|garlic powder|onion powder|bay leaf|vanilla)\b/i],
   ["Pantry",  /\b(oil|olive oil|broth|stock|vinegar|soy sauce|tomato sauce|pasta|noodle|noodles|penne|spaghetti|macaroni|rice|beans|lentil|can|canned|sun.?dried|chipotle|adobo|flour|sugar|honey|syrup|ketchup|mustard|mayo|mayonnaise|cereal|oat|oats|cornstarch|cracker|chip|chips|peanut butter|jam|jelly|water|sauce|paste|powder|stock)\b/i],
 ];
-
+ 
 function categorizeIngredient(name){
   for(const [cat,re] of CAT_RULES){ if(re.test(name)) return cat; }
   return "Pantry";
 }
-
+ 
 // Parse a single ingredient phrase into {qty, name}. qty is "" when none.
 function parseOnePhrase(raw){
   let s = raw.trim().replace(/^[,\-•*·]+\s*/,"");   // strip leading bullets/dashes
   if(!s) return null;
-
+ 
   let qty = "";
   let rest = s;
-
+ 
   // Leading numeric quantity: "2", "1.5", "1/2", "2-3", with optional unicode fractions
   const numMatch = s.match(/^([\d¼½¾⅓⅔⅛⅜⅝⅞]+(?:\s*\/\s*\d+)?(?:\.\d+)?(?:\s*-\s*[\d¼½¾⅓⅔⅛⅜⅝⅞]+)?)\s+(.*)$/);
   if(numMatch){
@@ -109,7 +112,7 @@ function parseOnePhrase(raw){
       rest = words.slice(1).join(" ");
     }
   }
-
+ 
   // Pull a trailing unit off the front of rest ("lbs chicken" → unit lbs)
   let unit = "";
   const rw = rest.split(/\s+/);
@@ -117,19 +120,19 @@ function parseOnePhrase(raw){
     const u = rw[0].toLowerCase().replace(/\.$/,"");
     if(UNIT_WORDS.includes(u)){ unit = rw[0]; rest = rw.slice(1).join(" "); }
   }
-
+ 
   // Ingredient name = everything up to a descriptor comma ("chicken, diced" → chicken)
   let name = rest.replace(/,.*$/,"").trim();
   if(!name) name = s;
-
+ 
   let qtyLabel = "";
   if(qty && unit) qtyLabel = `${qty} ${unit}`;
   else if(qty) qtyLabel = qty;
   else if(unit) qtyLabel = unit;
-
+ 
   return { qty: qtyLabel, name };
 }
-
+ 
 // Smart splitter: understands newlines, commas, AND plain single-line input.
 function splitIntoPhrases(text){
   if(!text.trim()) return [];
@@ -147,10 +150,10 @@ function splitIntoPhrases(text){
   }
   return chunks;
 }
-
+ 
 function parseIngredientsLocally(rawText, nameHint=""){
   const rawLines = rawText.split(/\n/).map(l=>l.trim()).filter(Boolean);
-
+ 
   // Detect a recipe title only when the first line really looks like one:
   // multiple words, no digits, no units, AND not itself a known ingredient.
   let recipeName = nameHint || "My Recipe";
@@ -167,7 +170,7 @@ function parseIngredientsLocally(rawText, nameHint=""){
     recipeName = first.replace(/ for \d+.*$/i,"").trim();
     body = rawLines.slice(1).join("\n");
   }
-
+ 
   const phrases = splitIntoPhrases(body);
   const ingredients = [];
   phrases.forEach((phrase,i)=>{
@@ -184,10 +187,10 @@ function parseIngredientsLocally(rawText, nameHint=""){
       status: "pending",
     });
   });
-
+ 
   return { recipeName, servings:4, ingredients };
 }
-
+ 
 async function extractText(input){
   try{
     const text = await callClaude([{role:"user",content:input}]);
@@ -200,7 +203,7 @@ async function extractText(input){
     throw e;
   }
 }
-
+ 
 async function extractImage(b64){
   try{
     const text = await callClaude([{role:"user",content:[
@@ -212,7 +215,7 @@ async function extractImage(b64){
     throw new Error("Image extraction requires the deployed version. Please paste the recipe as text instead.");
   }
 }
-
+ 
 function toResult(p){
   return{
     recipeName:p.recipeName||"My Recipe",
@@ -223,7 +226,7 @@ function toResult(p){
     })),
   };
 }
-
+ 
 async function getSubs(name, qty){
   try{
     const system = `Return ONLY a JSON array of exactly 3 short grocery substitution strings. No markdown. Example: ["Half-and-half","Coconut cream","Evaporated milk"]`;
@@ -243,7 +246,7 @@ async function getSubs(name, qty){
     return [`Store-brand ${name}`, `Similar product`, `Skip this item`];
   }
 }
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATIC DATA
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,14 +269,14 @@ const SAMPLES=[
   {name:"Salmon Tacos",emoji:"🌮",text:`Spicy Salmon Tacos for 4\n1.5 lbs salmon fillets, 8 corn tortillas, 2 limes, 1 avocado, 1/2 red cabbage shredded, 1/2 cup sour cream, 2 tbsp chipotle in adobo, 1/4 cup cilantro, 1 jalapeño, 1 tbsp olive oil, 1 tsp cumin, 1 tsp smoked paprika, salt`},
   {name:"Pasta Primavera",emoji:"🍝",text:`Pasta Primavera for 4\n1 lb penne, 2 zucchini, 1 bell pepper, 1 cup cherry tomatoes, 1/2 cup frozen peas, 4 cloves garlic, 1/2 cup parmesan, 1/4 cup olive oil, fresh basil, 1 lemon, red pepper flakes, salt and black pepper`},
 ];
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // UI PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 const Pill=({children,color=C.accent,style,onClick})=>(
   <span onClick={onClick} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:700,letterSpacing:".04em",background:color+"22",color,cursor:onClick?"pointer":"default",...style}}>{children}</span>
 );
-
+ 
 const Btn=({children,onClick,variant="primary",style,disabled})=>{
   const s={
     primary:{background:C.accent,color:"#000",fontWeight:800},
@@ -286,23 +289,23 @@ const Btn=({children,onClick,variant="primary",style,disabled})=>{
     <button onClick={onClick} disabled={disabled} style={{border:"none",borderRadius:14,padding:"14px 20px",fontSize:15,fontFamily:"inherit",cursor:disabled?"not-allowed":"pointer",opacity:disabled?.45:1,transition:"opacity .15s",display:"flex",alignItems:"center",justifyContent:"center",gap:8,...s[variant],...style}}>{children}</button>
   );
 };
-
+ 
 const Card=({children,style,onClick})=>(
   <div onClick={onClick} style={{background:C.card,borderRadius:18,padding:16,border:`1px solid ${C.border}`,cursor:onClick?"pointer":"default",...style}}>{children}</div>
 );
-
+ 
 const ProgressBar=({value,color=C.accent,style})=>(
   <div style={{height:6,background:C.border,borderRadius:99,overflow:"hidden",...style}}>
     <div style={{height:"100%",width:`${Math.min(100,Math.max(0,value))}%`,background:color,borderRadius:99,transition:"width .4s ease"}}/>
   </div>
 );
-
+ 
 const BackBtn=({onBack})=>(
   <button onClick={onBack} style={{position:"fixed",top:52,left:16,zIndex:40,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
     <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
   </button>
 );
-
+ 
 const CSS=()=>(
   <style>{`
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -311,7 +314,7 @@ const CSS=()=>(
     .fi{animation:fadein .3s ease both}
   `}</style>
 );
-
+ 
 const Spinner=({label})=>(
   <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"56px 24px"}}>
     <CSS/>
@@ -323,11 +326,11 @@ const Spinner=({label})=>(
     <p style={{color:C.muted,fontSize:14,textAlign:"center",maxWidth:220}}>{label}</p>
   </div>
 );
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────────────────
-
+ 
 // HOME
 const HomeScreen=({onNav,trip,pantry,history})=>{
   const has=trip&&trip.ingredients?.length>0;
@@ -341,7 +344,7 @@ const HomeScreen=({onNav,trip,pantry,history})=>{
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:28}}>
           <div style={{width:40,height:40,borderRadius:12,background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🛍</div>
           <span style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:C.text,letterSpacing:"-.01em"}}>RecipeRun</span>
-
+ 
         </div>
         <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:32,fontWeight:800,color:C.text,lineHeight:1.15,marginBottom:10,letterSpacing:"-.02em"}}>
           Plan dinner once.<br/><span style={{color:C.accent}}>Shop smarter</span> everywhere.
@@ -386,19 +389,19 @@ const HomeScreen=({onNav,trip,pantry,history})=>{
             <span style={{color:C.muted,fontSize:18}}>›</span>
           </Card>
         ))}
-
+ 
         {/* Footer credit */}
         <div style={{textAlign:"center",padding:"28px 0 8px"}}>
           <div style={{width:32,height:2,background:C.border,borderRadius:99,margin:"0 auto 16px"}}/>
           <p style={{color:C.muted,fontSize:13,fontWeight:600}}>Built by Brandon Johnson</p>
           <p style={{color:C.border,fontSize:11,marginTop:4}}>RecipeRun · Plan dinner once. Shop smarter everywhere.</p>
         </div>
-
+ 
       </div>
     </div>
   );
 };
-
+ 
 // TRIP TYPE — what are you shopping for today?
 const TRIP_TYPES=[
   {
@@ -447,14 +450,14 @@ const TRIP_TYPES=[
     questions:[],
   },
 ];
-
+ 
 const TripTypeScreen=({onNav,setTripContext})=>{
   const [selected,setSelected]=useState(null);
   const [answers,setAnswers]=useState({});
   const [step,setStep]=useState("pick"); // pick | questions
-
+ 
   const type=TRIP_TYPES.find(t=>t.id===selected);
-
+ 
   const choose=(id)=>{
     setSelected(id);
     const t=TRIP_TYPES.find(x=>x.id===id);
@@ -466,12 +469,12 @@ const TripTypeScreen=({onNav,setTripContext})=>{
       setStep("questions");
     }
   };
-
+ 
   const finish=()=>{
     setTripContext({type:selected,answers});
     onNav("import");
   };
-
+ 
   if(step==="questions"&&type){
     return(
       <div style={{minHeight:"100vh",background:C.bg,paddingBottom:100}}>
@@ -501,7 +504,7 @@ const TripTypeScreen=({onNav,setTripContext})=>{
               </div>
             </Card>
           ))}
-
+ 
           {/* Summary card */}
           {Object.keys(answers).length>0&&(
             <Card style={{border:`1px solid ${type.color}33`,background:type.color+"08"}}>
@@ -524,7 +527,7 @@ const TripTypeScreen=({onNav,setTripContext})=>{
       </div>
     );
   }
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:80}}>
       <CSS/>
@@ -558,7 +561,7 @@ const TripTypeScreen=({onNav,setTripContext})=>{
     </div>
   );
 };
-
+ 
 // IMPORT
 const ImportScreen=({onNav,onImport,prefill})=>{
   const [url,setUrl]=useState("");
@@ -569,7 +572,7 @@ const ImportScreen=({onNav,onImport,prefill})=>{
   const [picking,setPicking]=useState(null);  // id of item whose category is being changed
   const fileRef=useRef();
   const fileRef2=useRef();
-
+ 
   // Parse instantly as the user types — no network, can't fail.
   useEffect(()=>{
     if(!manual.trim()){ setPreview([]); return; }
@@ -579,10 +582,10 @@ const ImportScreen=({onNav,onImport,prefill})=>{
     },160);
     return ()=>clearTimeout(t);
   },[manual]);
-
+ 
   const setItemCat=(id,cat)=>{ setPreview(p=>p.map(it=>it.id===id?{...it,category:cat}:it)); setPicking(null); };
   const delItem=(id)=>setPreview(p=>p.filter(it=>it.id!==id));
-
+ 
   // Text uses the instant local parse (already in `preview`). Image still uses AI.
   const run=async(input,type="text")=>{
     if(type==="text"){
@@ -604,14 +607,14 @@ const ImportScreen=({onNav,onImport,prefill})=>{
       else{setError("Couldn't read that image. Try typing or pasting the ingredients instead.");}
     }finally{setLoading(false);}
   };
-
+ 
   const handleFile=(e)=>{
     const f=e.target.files?.[0];if(!f)return;
     const reader=new FileReader();
     reader.onload=()=>run(reader.result.split(",")[1],"image");
     reader.readAsDataURL(f);
   };
-
+ 
   // Demo recipes & prefill: parse directly (don't depend on preview state timing).
   const runText=(text)=>{
     const r=parseIngredientsLocally(text);
@@ -619,13 +622,13 @@ const ImportScreen=({onNav,onImport,prefill})=>{
     onImport(r);onNav("review");
   };
   useEffect(()=>{if(prefill)runText(prefill.text);},[]);
-
+ 
   if(loading)return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",justifyContent:"center"}}>
       <Spinner label="AI is reading your recipe and extracting every ingredient…"/>
     </div>
   );
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:80}}>
       <CSS/>
@@ -640,7 +643,7 @@ const ImportScreen=({onNav,onImport,prefill})=>{
         <p style={{color:C.muted,fontSize:12,marginTop:3}}>Type or paste ingredients below, or try a demo. URL & photo import coming soon.</p>
       </div>
       {error&&<div style={{background:C.danger+"18",border:`1px solid ${C.danger}44`,borderRadius:14,padding:"12px 16px"}}><p style={{color:C.danger,fontSize:14}}>⚠ {error}</p></div>}
-
+ 
         <Card style={{borderColor:C.border,background:C.surface}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
             <span style={{fontSize:18}}>🔗</span>
@@ -651,7 +654,7 @@ const ImportScreen=({onNav,onImport,prefill})=>{
             We're building TikTok, Instagram, AllRecipes & NYT Cooking imports. For now — copy the recipe text and paste it below, or try a demo. 👇
           </p>
         </Card>
-
+ 
         <Card style={{borderColor:C.border,background:C.surface}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
             <span style={{fontSize:18}}>📸</span>
@@ -662,17 +665,17 @@ const ImportScreen=({onNav,onImport,prefill})=>{
             Snap a recipe card or upload a screenshot — coming with the next update.
           </p>
         </Card>
-
+ 
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{flex:1,height:1,background:C.border}}/><span style={{color:C.muted,fontSize:12}}>or type it in</span><div style={{flex:1,height:1,background:C.border}}/>
         </div>
-
+ 
         <Card>
           <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:10}}>TYPE OR PASTE INGREDIENTS</p>
           <textarea value={manual} onChange={e=>setManual(e.target.value)} placeholder={"Type any way you like:\n\n2 lbs chicken, pasta, olive oil\n\nor one per line — amounts optional."} rows={5}
             style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box"}}/>
           <p style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.5}}>Works with commas, new lines, or a plain list. Items sort themselves below — tap a colored tag to move one.</p>
-
+ 
           {preview.length>0&&(
             <div className="fi" style={{marginTop:14,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -698,10 +701,10 @@ const ImportScreen=({onNav,onImport,prefill})=>{
               )}
             </div>
           )}
-
+ 
           <Btn onClick={()=>run(manual)} disabled={!preview.length} variant="primary" style={{width:"100%",marginTop:14}}>Add {preview.length||""} {preview.length===1?"item":"items"} to list →</Btn>
         </Card>
-
+ 
         <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",paddingLeft:4}}>TRY A DEMO</p>
         {SAMPLES.map(r=>(
           <Card key={r.name} onClick={()=>runText(r.text)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer",border:`1px solid ${C.purple}33`}}>
@@ -717,22 +720,22 @@ const ImportScreen=({onNav,onImport,prefill})=>{
     </div>
   );
 };
-
+ 
 // REVIEW — now the primary "Your List" screen with checkboxes + quick-start
 const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,setStores})=>{
   const [editing,setEditing]=useState(null);
   const [showSetup,setShowSetup]=useState(false);
   const [checked,setChecked]=useState({});        // local pre-shop checks (have at home)
   const [selStores,setSelStores]=useState(["Publix","Harris Teeter"]);
-
+ 
   const cats=[...new Set(ingredients.map(i=>i.category))];
   const inPantry=n=>pantry.some(p=>p.name.toLowerCase()===n.toLowerCase());
   const checkedCount=Object.values(checked).filter(Boolean).length;
   const pct=ingredients.length>0?Math.round(checkedCount/ingredients.length*100):0;
-
+ 
   const tog=(id)=>setChecked(p=>({...p,[id]:!p[id]}));
   const togStore=(s)=>setSelStores(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
-
+ 
   const quickStart=()=>{
     const chosen=selStores.length>0?selStores:["Publix"];
     setStores(chosen);
@@ -744,7 +747,7 @@ const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,s
     setShowSetup(false);
     onNav("shopping");
   };
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:120}}>
       <CSS/>
@@ -763,7 +766,7 @@ const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,s
         <ProgressBar value={pct} style={{marginBottom:10}}/>
         <p style={{color:C.muted,fontSize:12}}>✓ Tap items you already have · ✏️ edit · ✕ remove</p>
       </div>
-
+ 
       {/* List */}
       <div style={{padding:"0 20px",display:"flex",flexDirection:"column",gap:6}}>
         {cats.map(cat=>(
@@ -793,7 +796,7 @@ const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,s
           </div>
         ))}
       </div>
-
+ 
       {/* Bottom CTA */}
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 20px 24px",background:C.bg,borderTop:`1px solid ${C.border}`}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10}}>
@@ -805,7 +808,7 @@ const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,s
           </Btn>
         </div>
       </div>
-
+ 
       {/* Quick-start store picker sheet */}
       {showSetup&&(
         <div style={{position:"fixed",inset:0,background:"#000000BB",zIndex:100,display:"flex",alignItems:"flex-end"}} onClick={()=>setShowSetup(false)}>
@@ -831,7 +834,7 @@ const ReviewScreen=({onNav,ingredients,setIngredients,recipeName,pantry,stores,s
     </div>
   );
 };
-
+ 
 // SETUP
 const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>{
   const [people,setPeople]=useState(4);
@@ -839,7 +842,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
   const [pantryItems,setPantryItems]=useState(()=>ingredients.filter(i=>pantry.some(p=>p.name.toLowerCase()===i.name.toLowerCase())).map(i=>i.id));
   const [dietary,setDietary]=useState([]);
   const tog=(arr,set,v)=>set(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]);
-
+ 
   const proceed=()=>{
     setStores(selStores);
     setIngredients(prev=>prev.map(i=>{
@@ -849,7 +852,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
     }));
     onNav("assign");
   };
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:100}}>
       <CSS/>
@@ -866,7 +869,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
             ))}
           </div>
         </Card>
-
+ 
         <Card>
           <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:12}}>WHICH STORES? (IN VISIT ORDER)</p>
           {STORES.map(s=>(
@@ -880,7 +883,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
           ))}
           {selStores.length>0&&<p style={{color:C.muted,fontSize:12,paddingLeft:4}}>Route: {selStores.join(" → ")}</p>}
         </Card>
-
+ 
         <Card>
           <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>ALREADY HAVE AT HOME</p>
           {pantry.length>0&&<p style={{color:C.accent,fontSize:12,marginBottom:10}}>✓ {pantryItems.length} auto-detected from your pantry</p>}
@@ -892,7 +895,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
             ))}
           </div>
         </Card>
-
+ 
         <Card>
           <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:10}}>DIETARY PREFERENCES</p>
           <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -908,7 +911,7 @@ const SetupScreen=({onNav,ingredients,setIngredients,stores,setStores,pantry})=>
     </div>
   );
 };
-
+ 
 // ASSIGN
 const AssignScreen=({onNav,ingredients,setIngredients,stores})=>{
   const move=(id,toStore)=>setIngredients(p=>p.map(i=>i.id===id?{...i,store:toStore}:i));
@@ -964,20 +967,20 @@ const AssignScreen=({onNav,ingredients,setIngredients,stores})=>{
     </div>
   );
 };
-
+ 
 // SHOPPING
 const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,setCurrentStoreIdx})=>{
   const [subTarget,setSubTarget]=useState(null);
   const [subs,setSubs]=useState({});
   const [subLoading,setSubLoading]=useState(false);
-
+ 
   const store=stores[currentStoreIdx];
   const storeItems=ingredients.filter(i=>i.store===store&&i.status!=="have");
   const pending=storeItems.filter(i=>i.status==="pending");
   const done=storeItems.filter(i=>i.status!=="pending");
   const pct=storeItems.length>0?Math.round(done.length/storeItems.length*100):0;
   const nextItems=currentStoreIdx<stores.length-1?ingredients.filter(i=>i.store===stores[currentStoreIdx+1]&&i.status==="pending"):[];
-
+ 
   const act=(id,action)=>{
     if(action==="sub"){openSub(id);return;}
     setIngredients(p=>p.map(i=>{
@@ -989,7 +992,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
       return i;
     }));
   };
-
+ 
   const openSub=async(id)=>{
     setSubTarget(id);
     if(subs[id])return;
@@ -1000,9 +1003,9 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
     catch{setSubs(p=>({...p,[id]:["Similar item","Store brand","Skip it"]}));}
     setSubLoading(false);
   };
-
+ 
   const STATUS={purchased:{icon:"✓",color:C.accent},have:{icon:"🏠",color:C.purple},unavailable:{icon:"✗",color:C.danger},substituted:{icon:"↔",color:C.warn}};
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:100}}>
       <CSS/>
@@ -1026,7 +1029,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
         </div>
         <ProgressBar value={pct} color={STORE_COLORS[store]} style={{marginBottom:20}}/>
       </div>
-
+ 
       <div style={{padding:"0 20px",display:"flex",flexDirection:"column",gap:8}}>
         {pending.map(item=>(
           <div key={item.id} className="fi" style={{background:C.card,borderRadius:18,border:`1px solid ${C.border}`,overflow:"hidden"}}>
@@ -1054,7 +1057,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
             </div>
           </div>
         ))}
-
+ 
         {done.length>0&&(
           <div style={{marginTop:8}}>
             <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",padding:"4px 4px 8px"}}>DONE ({done.length})</p>
@@ -1067,7 +1070,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
             ))}
           </div>
         )}
-
+ 
         {pending.length===0&&nextItems.length>0&&(
           <Card style={{border:`1px solid ${C.warn}44`,background:C.warn+"0A",marginTop:8}}>
             <p style={{color:C.warn,fontWeight:700,marginBottom:8}}>🏪 Next: {stores[currentStoreIdx+1]} · {nextItems.length} items</p>
@@ -1076,7 +1079,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
             <Btn onClick={()=>setCurrentStoreIdx(x=>x+1)} variant="warn" style={{width:"100%",marginTop:12}}>Head to {stores[currentStoreIdx+1]} →</Btn>
           </Card>
         )}
-
+ 
         {pending.length===0&&nextItems.length===0&&(
           <Card style={{textAlign:"center",padding:32,border:`1px solid ${C.accent}44`}}>
             <div style={{fontSize:52,marginBottom:12}}>🎉</div>
@@ -1086,7 +1089,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
           </Card>
         )}
       </div>
-
+ 
       {subTarget&&(
         <SubModal item={ingredients.find(i=>i.id===subTarget)} subs={subs[subTarget]} loading={subLoading}
           nextStore={currentStoreIdx<stores.length-1?stores[currentStoreIdx+1]:null}
@@ -1099,7 +1102,7 @@ const ShoppingScreen=({onNav,ingredients,setIngredients,stores,currentStoreIdx,s
     </div>
   );
 };
-
+ 
 // SUB MODAL
 const SubModal=({item,subs,loading,onClose,onSub,onSkip,nextStore,onMove})=>{
   const [custom,setCustom]=useState("");
@@ -1133,7 +1136,7 @@ const SubModal=({item,subs,loading,onClose,onSub,onSkip,nextStore,onMove})=>{
     </div>
   );
 };
-
+ 
 // SUMMARY
 const SummaryScreen=({onNav,ingredients,recipeName,onSavePantry,onClearTrip})=>{
   const [pantryDone,setPantryDone]=useState(false);
@@ -1183,7 +1186,7 @@ const SummaryScreen=({onNav,ingredients,recipeName,onSavePantry,onClearTrip})=>{
     </div>
   );
 };
-
+ 
 // PANTRY — with Scan My Fridge
 const PantryScreen=({pantry,setPantry})=>{
   const [adding,setAdding]=useState("");
@@ -1192,12 +1195,12 @@ const PantryScreen=({pantry,setPantry})=>{
   const [confirming,setConfirming]=useState(false);
   const [selected,setSelected]=useState({});
   const scanRef=useRef();
-
+ 
   const ago=iso=>{
     const d=Math.floor((Date.now()-new Date(iso).getTime())/86400000);
     if(d===0)return"Today";if(d===1)return"Yesterday";return`${d}d ago`;
   };
-
+ 
   const handleScan=async(e)=>{
     const f=e.target.files?.[0];if(!f)return;
     const previewUrl=URL.createObjectURL(f);
@@ -1235,7 +1238,7 @@ const PantryScreen=({pantry,setPantry})=>{
     };
     reader.readAsDataURL(f);
   };
-
+ 
   const addScanned=()=>{
     const toAdd=scanResult.found
       .filter((_,i)=>selected[i])
@@ -1244,24 +1247,24 @@ const PantryScreen=({pantry,setPantry})=>{
     setPantry(p=>[...p,...toAdd]);
     setConfirming(false);setScanResult(null);
   };
-
+ 
   const addManual=()=>{
     if(!adding.trim())return;
     setPantry(p=>[...p,{name:adding.trim(),addedAt:new Date().toISOString()}]);
     setAdding("");
   };
-
+ 
   return(
     <div style={{minHeight:"100vh",background:C.bg,paddingBottom:80}}>
       <CSS/>
       <input ref={scanRef} type="file" accept="image/*" capture="environment" onChange={handleScan} style={{display:"none"}}/>
-
+ 
       {/* Header */}
       <div style={{padding:"56px 20px 20px",background:`radial-gradient(ellipse at 50% 0%,${C.accent}12 0%,transparent 70%)`}}>
         <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:C.text}}>My Pantry</h2>
         <p style={{color:C.muted,fontSize:14,marginTop:4}}>{pantry.length} items saved between trips</p>
       </div>
-
+ 
       {/* Scan CTA — coming soon */}
       <div style={{padding:"0 20px 16px"}}>
         <div style={{
@@ -1284,7 +1287,7 @@ const PantryScreen=({pantry,setPantry})=>{
           </div>
         </div>
       </div>
-
+ 
       {/* Manual add */}
       <div style={{padding:"0 20px 16px",display:"flex",gap:8}}>
         <input value={adding} onChange={e=>setAdding(e.target.value)}
@@ -1293,7 +1296,7 @@ const PantryScreen=({pantry,setPantry})=>{
           style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
         <Btn onClick={addManual} disabled={!adding.trim()} style={{padding:"12px 16px",borderRadius:12,flexShrink:0}}>+</Btn>
       </div>
-
+ 
       {/* Pantry list */}
       <div style={{padding:"0 20px",display:"flex",flexDirection:"column",gap:6}}>
         {pantry.length===0&&(
@@ -1315,14 +1318,14 @@ const PantryScreen=({pantry,setPantry})=>{
           </div>
         ))}
       </div>
-
+ 
       {/* Scan confirm sheet */}
       {confirming&&scanResult&&(
         <div style={{position:"fixed",inset:0,background:"#000000CC",zIndex:100,display:"flex",alignItems:"flex-end"}}>
           <div style={{background:C.surface,borderRadius:"24px 24px 0 0",padding:"24px 20px 48px",width:"100%",maxWidth:430,margin:"0 auto",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}}>
             <CSS/>
             <div style={{width:40,height:4,background:C.border,borderRadius:99,margin:"0 auto 20px"}}/>
-
+ 
             {/* Preview thumbnail */}
             <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
               <img src={scanResult.preview} alt="scan" style={{width:64,height:64,borderRadius:12,objectFit:"cover",border:`1px solid ${C.border}`}}/>
@@ -1332,7 +1335,7 @@ const PantryScreen=({pantry,setPantry})=>{
                 <p style={{color:C.muted,fontSize:13}}>Tap to deselect anything wrong</p>
               </div>
             </div>
-
+ 
             {/* Toggleable item chips */}
             <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:24}}>
               {scanResult.found.map((item,i)=>(
@@ -1348,7 +1351,7 @@ const PantryScreen=({pantry,setPantry})=>{
                 </button>
               ))}
             </div>
-
+ 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <Btn onClick={addScanned} style={{fontSize:15}}>
                 Add {Object.values(selected).filter(Boolean).length} Items →
@@ -1363,7 +1366,7 @@ const PantryScreen=({pantry,setPantry})=>{
     </div>
   );
 };
-
+ 
 // HISTORY
 const HistoryScreen=({history})=>(
   <div style={{minHeight:"100vh",background:C.bg,paddingBottom:80}}>
@@ -1392,11 +1395,164 @@ const HistoryScreen=({history})=>(
     </div>
   </div>
 );
-
+ 
 // NAV
+// ─────────────────────────────────────────────────────────────────────────────
+// RECIPE BROWSE — search a big library, filter by diet/allergen, send to list
+// ─────────────────────────────────────────────────────────────────────────────
+const DIETS=[
+  {id:"",label:"All"},
+  {id:"ketogenic",label:"Keto"},
+  {id:"vegetarian",label:"Vegetarian"},
+  {id:"vegan",label:"Vegan"},
+  {id:"gluten free",label:"Gluten-free"},
+  {id:"dairy free",label:"Dairy-free"},
+  {id:"paleo",label:"Paleo"},
+  {id:"whole30",label:"Whole30"},
+];
+const INTOLERANCES=["Dairy","Egg","Gluten","Peanut","Seafood","Shellfish","Soy","Tree Nut","Wheat"];
+ 
+// Map a Spoonacular recipe into the app's ingredient shape (reuses categorizer).
+function recipeToIngredients(recipe){
+  return (recipe.ingredients||[]).map((ing,i)=>{
+    const amount = ing.amount ? (Number.isInteger(ing.amount)?ing.amount:ing.amount.toFixed(2).replace(/\.?0+$/,"")) : "";
+    const qty = [amount, ing.unit].filter(Boolean).join(" ").trim();
+    const name = (ing.name||"").trim();
+    return {
+      id: Date.now()+i,
+      name: name.charAt(0).toUpperCase()+name.slice(1),
+      qty,
+      category: categorizeIngredient(name),
+      store:null, status:"pending",
+    };
+  }).filter(x=>x.name.length>1);
+}
+ 
+const RecipeBrowseScreen=({onNav,onImport})=>{
+  const [query,setQuery]=useState("");
+  const [diet,setDiet]=useState("");
+  const [intol,setIntol]=useState([]);
+  const [results,setResults]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [limit,setLimit]=useState(false);
+  const [searched,setSearched]=useState(false);
+ 
+  const togIntol=(v)=>setIntol(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]);
+ 
+  const search=async()=>{
+    setLoading(true);setError("");setLimit(false);setSearched(true);
+    try{
+      const params=new URLSearchParams({action:"search",number:"12"});
+      if(query.trim())params.set("query",query.trim());
+      if(diet)params.set("diet",diet);
+      if(intol.length)params.set("intolerances",intol.join(",").toLowerCase());
+      const r=await fetch(`/api/recipes?${params}`);
+      const data=await r.json();
+      if(data.limit){setLimit(true);setResults([]);}
+      else if(data.error){setError(data.error);setResults([]);}
+      else setResults(data.results||[]);
+    }catch(e){
+      setError("Couldn't load recipes. Check your connection and try again.");
+      setResults([]);
+    }finally{setLoading(false);}
+  };
+ 
+  const useRecipe=(rec)=>{
+    const ings=recipeToIngredients(rec);
+    if(!ings.length){setError("That recipe didn't include a usable ingredient list. Try another.");return;}
+    onImport({recipeName:rec.title,servings:rec.servings||4,ingredients:ings});
+    onNav("review");
+  };
+ 
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,paddingBottom:90}}>
+      <CSS/>
+      <div style={{padding:"56px 20px 16px"}}>
+        <Pill color={C.accent} style={{marginBottom:10}}>RECIPE LIBRARY</Pill>
+        <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em"}}>Find something to make</h2>
+        <p style={{color:C.muted,fontSize:14,marginTop:4}}>No plan tonight? Search thousands of recipes and send one straight to your list.</p>
+      </div>
+ 
+      <div style={{padding:"0 20px",display:"flex",flexDirection:"column",gap:14}}>
+        {/* Search box */}
+        <div style={{display:"flex",gap:8}}>
+          <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()}
+            placeholder="e.g. chicken pasta, tacos…"
+            style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 14px",color:C.text,fontSize:15,fontFamily:"inherit",outline:"none"}}/>
+          <Btn onClick={search} style={{padding:"0 18px"}}>Search</Btn>
+        </div>
+ 
+        {/* Diet filter chips */}
+        <div>
+          <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>DIETARY NEED</p>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {DIETS.map(d=>(
+              <span key={d.id} onClick={()=>setDiet(d.id)}
+                style={{fontSize:12,fontWeight:700,padding:"7px 13px",borderRadius:99,cursor:"pointer",
+                  color:diet===d.id?"#000":C.muted,background:diet===d.id?C.accent:C.card,
+                  border:`1px solid ${diet===d.id?C.accent:C.border}`}}>{d.label}</span>
+            ))}
+          </div>
+        </div>
+ 
+        {/* Allergen exclusions */}
+        <div>
+          <p style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>AVOID (ALLERGENS)</p>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {INTOLERANCES.map(v=>(
+              <span key={v} onClick={()=>togIntol(v)}
+                style={{fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:99,cursor:"pointer",
+                  color:intol.includes(v)?"#000":C.muted,background:intol.includes(v)?C.warn:C.card,
+                  border:`1px solid ${intol.includes(v)?C.warn:C.border}`}}>{v}</span>
+            ))}
+          </div>
+        </div>
+ 
+        {loading&&<Spinner label="Finding recipes that match…"/>}
+ 
+        {limit&&!loading&&(
+          <Card style={{border:`1px solid ${C.warn}44`,background:C.warn+"14"}}>
+            <p style={{color:C.warn,fontSize:14,fontWeight:600}}>Daily recipe limit reached</p>
+            <p style={{color:C.muted,fontSize:13,marginTop:4}}>The free recipe service resets every day. Try again tomorrow, or build your list by hand for now.</p>
+          </Card>
+        )}
+        {error&&!loading&&<Card style={{border:`1px solid ${C.danger}44`,background:C.danger+"14"}}><p style={{color:C.danger,fontSize:14}}>{error}</p></Card>}
+ 
+        {!loading&&searched&&!error&&!limit&&results.length===0&&(
+          <Card><p style={{color:C.muted,fontSize:14,textAlign:"center",padding:"12px 0"}}>No recipes matched those filters. Try removing one.</p></Card>
+        )}
+ 
+        {/* Results */}
+        {!loading&&results.map(rec=>(
+          <Card key={rec.id} style={{padding:0,overflow:"hidden"}} className="fi">
+            {rec.image&&<img src={rec.image} alt={rec.title} style={{width:"100%",height:150,objectFit:"cover",display:"block"}}/>}
+            <div style={{padding:14}}>
+              <p style={{color:C.text,fontWeight:700,fontSize:16,lineHeight:1.3}}>{rec.title}</p>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"8px 0 12px"}}>
+                {rec.readyInMinutes>0&&<Pill color={C.muted}>{rec.readyInMinutes} min</Pill>}
+                {rec.servings>0&&<Pill color={C.muted}>{rec.servings} servings</Pill>}
+                {(rec.diets||[]).slice(0,2).map(d=><Pill key={d} color={C.accent}>{d}</Pill>)}
+              </div>
+              <Btn onClick={()=>useRecipe(rec)} style={{width:"100%"}}>Send {rec.ingredients?.length||""} ingredients to list →</Btn>
+            </div>
+          </Card>
+        ))}
+ 
+        {!searched&&!loading&&(
+          <Card style={{border:`1px dashed ${C.border}`,background:"transparent"}}>
+            <p style={{color:C.muted,fontSize:14,textAlign:"center",padding:"16px 0",lineHeight:1.6}}>🔍 Pick a filter or type what you're craving, then hit Search.</p>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+};
+ 
+ 
 const NavBar=({screen,onNav})=>{
   if(["shopping","triptype"].includes(screen))return null;
-  const tabs=[{id:"home",label:"Home",emoji:"🏠"},{id:"triptype",label:"New Trip",emoji:"✚"},{id:"pantry",label:"Pantry",emoji:"🥫"}];
+  const tabs=[{id:"home",label:"Home",emoji:"🏠"},{id:"browse",label:"Recipes",emoji:"🔍"},{id:"triptype",label:"New Trip",emoji:"✚"},{id:"pantry",label:"Pantry",emoji:"🥫"}];
   return(
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 20px",zIndex:50}}>
       {tabs.map(t=>{
@@ -1411,7 +1567,7 @@ const NavBar=({screen,onNav})=>{
     </div>
   );
 };
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1422,20 +1578,20 @@ export default function App(){
   const [screen,setScreen]=useState("home");
   const [prefill,setPrefill]=useState(null);
   const [tripContext,setTripContext]=useState({type:"family",answers:{}});
-
+ 
   const [ingredients,setIngredientsRaw]=useState(()=>trip?.ingredients||[]);
   const [recipeName,setRecipeName]=useState(()=>trip?.recipeName||"");
   const [stores,setStores]=useState(()=>trip?.stores||[]);
   const [currentStoreIdx,setCurrentStoreIdxRaw]=useState(()=>trip?.currentStoreIdx||0);
-
+ 
   const setPantry=v=>{const n=typeof v==="function"?v(pantry):v;setPantryRaw(n);LS.set(PANTRY_KEY,n);};
   const setHistory=v=>{const n=typeof v==="function"?v(history):v;setHistoryRaw(n);LS.set(HIST_KEY,n);};
-
+ 
   const syncTrip=(ings,rn,st,idx)=>{
     const t={ingredients:ings,recipeName:rn,stores:st,currentStoreIdx:idx};
     setTripRaw(t);LS.set(TRIP_KEY,t);
   };
-
+ 
   const setIngredients=useCallback(updater=>{
     setIngredientsRaw(prev=>{
       const next=typeof updater==="function"?updater(prev):updater;
@@ -1443,33 +1599,33 @@ export default function App(){
       return next;
     });
   },[recipeName,stores,currentStoreIdx]);
-
+ 
   const setCurrentStoreIdx=idx=>{
     setCurrentStoreIdxRaw(idx);
     syncTrip(ingredients,recipeName,stores,idx);
   };
-
+ 
   const handleImport=({recipeName:rn,ingredients:ings})=>{
     setRecipeName(rn);setIngredientsRaw(ings);
     syncTrip(ings,rn,[],0);
   };
-
+ 
   const handleSavePantry=items=>{
     setPantry(prev=>{
       const names=new Set(prev.map(p=>p.name.toLowerCase()));
       return[...prev,...items.filter(i=>!names.has(i.name.toLowerCase()))];
     });
   };
-
+ 
   const handleClearTrip=()=>{
     if(ingredients.length>0)setHistory(h=>[{recipeName,ingredients,stores,savedAt:new Date().toISOString()},...h.slice(0,9)]);
     setTripRaw(null);LS.del(TRIP_KEY);
     setIngredientsRaw([]);setRecipeName("");setStores([]);setCurrentStoreIdxRaw(0);
   };
-
+ 
   const nav=(s,data)=>{if(data)setPrefill(data);setScreen(s);};
-  const BACK={triptype:"home",import:"triptype",review:"import",setup:"review",assign:"setup",summary:"home",pantry:"home",history:"home"};
-
+  const BACK={triptype:"home",import:"triptype",browse:"home",review:"import",setup:"review",assign:"setup",summary:"home",pantry:"home",history:"home"};
+ 
   return(
     <div style={{fontFamily:"'DM Sans',sans-serif",background:C.bg,minHeight:"100vh",maxWidth:430,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet"/>
@@ -1478,6 +1634,7 @@ export default function App(){
       {screen==="home"     &&<HomeScreen    onNav={nav} trip={trip} pantry={pantry} history={history}/>}
       {screen==="triptype"  &&<TripTypeScreen onNav={nav} setTripContext={setTripContext}/>}
       {screen==="import"   &&<ImportScreen  onNav={nav} onImport={handleImport} prefill={prefill}/>}
+      {screen==="browse"   &&<RecipeBrowseScreen onNav={nav} onImport={handleImport}/>}
       {screen==="review"   &&<ReviewScreen  onNav={nav} ingredients={ingredients} setIngredients={setIngredients} recipeName={recipeName} pantry={pantry} stores={stores} setStores={setStores}/>}
       {screen==="setup"    &&<SetupScreen   onNav={nav} ingredients={ingredients} setIngredients={setIngredients} stores={stores} setStores={setStores} pantry={pantry}/>}
       {screen==="assign"   &&<AssignScreen  onNav={nav} ingredients={ingredients} setIngredients={setIngredients} stores={stores}/>}
@@ -1489,3 +1646,5 @@ export default function App(){
     </div>
   );
 }
+ 
+
